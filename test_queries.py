@@ -11,6 +11,7 @@ import time
 from urllib.parse import quote_plus, urlencode
 import warnings
 
+import numpy as np
 import pandas as pd
 import pytest
 import requests
@@ -103,20 +104,22 @@ def test_query(query_id, pytestconfig, rumble):
     variables['input-path'] = input_path
 
     # Run query and read result
-    start_timestamp = time.time()
-    output = rumble.run(query_file, variables)
-    end_timestamp = time.time()
-    df = pd.DataFrame.from_records(output)
+    for i in range(int(pytestconfig.getoption('warmup_count'))):
+        output = rumble.run(query_file, variables)
 
-    running_time = end_timestamp - start_timestamp
-    logging.info('Running time: {:.2f}s'.format(running_time))
+    for i in range(int(pytestconfig.getoption('run_count'))):
+        start_timestamp = time.time()
+        output = rumble.run(query_file, variables)
+        end_timestamp = time.time()
+        df = pd.DataFrame.from_records(output)
+        running_time = end_timestamp - start_timestamp
+        with open(pytestconfig.getoption('out_file'), "a") as f:
+            f.write("{},{},{:.4f}\n".format(query_id, int(pytestconfig.getoption('num_events')), running_time))
+        logging.info('Running time: {:.2f}s'.format(running_time))
 
     # Freeze reference result
     if pytestconfig.getoption('freeze_result'):
         df.to_csv(ref_file, sep=',', index=False)
-
-    # Read reference result
-    df_ref = pd.read_csv(ref_file, sep=',')
 
     # Plot histogram
     if pytestconfig.getoption('plot_histogram'):
@@ -124,17 +127,6 @@ def test_query(query_id, pytestconfig, rumble):
         plt.hist(df.x, bins=len(df.index), weights=df.y)
         plt.savefig(png_file)
         plt.close()
-
-    # Normalize reference and query result
-    df = df[df.y > 0]
-    df = df[['x', 'y']]
-    df.reset_index(drop=True, inplace=True)
-    df_ref = df_ref[df_ref.y > 0]
-    df_ref = df_ref[['x', 'y']]
-    df_ref.reset_index(drop=True, inplace=True)
-
-    # Assert correct result
-    pd.testing.assert_frame_equal(df_ref, df)
 
 
 if __name__ == '__main__':
